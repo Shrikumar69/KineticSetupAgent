@@ -3,14 +3,14 @@ file_sync.py
 Copies source files/folders from the network share to local destination folders.
 
 Steps covered:
-  1. Copy E10QAGolden_full_dmp  -> C:\ErpCurrent\DB
-  2. Copy ICECommon_full_dmp    -> C:\ErpCurrent\CommonDB
-  3. Copy latest Epicor build   -> C:\ErpCurrent\ISO
+  1. Copy E10QAGolden_full_dmp  -> C:\\ErpCurrent\\DB
+  2. Copy ICECommon_full_dmp    -> C:\\ErpCurrent\\CommonDB
+  3. Copy latest Epicor build   -> C:\\ErpCurrent\\ISO
 """
 
 import os
-import shutil
 import logging
+import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -56,14 +56,9 @@ class FileSyncAgent:
         folder_name = Path(src).name
         dest_full = os.path.join(dest, folder_name)
 
-        if os.path.exists(dest_full):
-            logger.info(f"Removing existing folder: {dest_full}")
-            shutil.rmtree(dest_full)
-
-        logger.info(f"Copying  {src}")
-        logger.info(f"      -> {dest_full}")
-        shutil.copytree(src, dest_full)
-        logger.info(f"[OK] Epicor build copied to: {dest_full}")
+        # Incremental sync avoids full recopy and handles large build folders faster.
+        self._sync_folder_incremental(src, dest_full)
+        logger.info(f"[OK] Epicor build synced to: {dest_full}")
         return dest_full
 
     # ------------------------------------------------------------------
@@ -84,18 +79,12 @@ class FileSyncAgent:
         dest_full = os.path.join(dest_dir, item_name)
 
         src_path = Path(source)
-
         if src_path.is_dir():
-            # Source is a directory – copy the whole folder
-            if os.path.exists(dest_full):
-                logger.info(f"Removing existing folder: {dest_full}")
-                shutil.rmtree(dest_full)
-            logger.info(f"Copying folder {source} -> {dest_full}")
-            shutil.copytree(source, dest_full)
+            logger.info(f"Syncing folder {source} -> {dest_full}")
+            self._sync_folder_incremental(source, dest_full)
         else:
-            # Source is a file
-            logger.info(f"Copying file  {source} -> {dest_full}")
-            shutil.copy2(source, dest_full)
+            logger.info(f"Syncing file   {source} -> {dest_full}")
+            self._sync_file_incremental(source, dest_dir)
 
         logger.info(f"[OK] {label} synced to: {dest_full}")
         return dest_full
@@ -120,6 +109,66 @@ class FileSyncAgent:
                 f"Cannot read Epicor builds path '{builds_path}': {e}"
             )
 
+    def _sync_folder_incremental(self, source_dir: str, dest_dir: str):
+        """Fast incremental folder sync via robocopy (no delete/mirror)."""
+        self._ensure_dir(dest_dir)
+        args = [
+            source_dir,
+            dest_dir,
+            "/E",
+            "/Z",
+            "/MT:16",
+            "/FFT",
+            "/R:1",
+            "/W:1",
+            "/NP",
+            "/NJH",
+            "/NJS",
+            "/XO",
+        ]
+        self._run_robocopy(args)
+
+    def _sync_file_incremental(self, source_file: str, dest_dir: str):
+        """Fast file sync via robocopy for a single file.
+        Note: /XO is intentionally omitted so corrupted/incomplete
+        destination files are always overwritten from source."""
+        src_parent = str(Path(source_file).parent)
+        file_name = Path(source_file).name
+        self._ensure_dir(dest_dir)
+        args = [
+            src_parent,
+            dest_dir,
+            file_name,
+            "/Z",
+            "/FFT",
+            "/R:1",
+            "/W:1",
+            "/NP",
+            "/NJH",
+            "/NJS",
+        ]
+        self._run_robocopy(args)
+
+    def _run_robocopy(self, args: list[str]):
+        """Run robocopy and treat exit codes 0-7 as success, >=8 as failure."""
+        cmd = ["robocopy"] + args
+        logger.debug("Running: %s", " ".join(cmd))
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        code = result.returncode
+
+        if code >= 8:
+            raise RuntimeError(
+                "Robocopy failed with exit code "
+                f"{code}.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+
+        # 0-7 are success/warnings in robocopy semantics.
+        if result.stdout.strip():
+            logger.debug(result.stdout)
+        if result.stderr.strip():
+            logger.debug(result.stderr)
+
     @staticmethod
     def _check_network_access(path: str):
         """Raise a clear error if the network/local path is not accessible."""
@@ -135,4 +184,3 @@ class FileSyncAgent:
         """Create directory (and parents) if it does not exist."""
         Path(path).mkdir(parents=True, exist_ok=True)
         logger.debug(f"Directory ready: {path}")
-

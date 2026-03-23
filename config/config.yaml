@@ -4,9 +4,9 @@
 
 network:
   # Source: ERP database compressed backup
-  erp_db_source: "\\\\quicksilver\\BLDesktop\\ERPCurrent\\QAGoldenMT\\E10QAGolden_full_dmp"
+  erp_db_source: "\\\\quicksilver\\BLDesktop\\ERPCurrent\\QAGoldenMT\\E10QAGolden_full_dmp.7z"
   # Source: ICECommon database backup
-  common_db_source: "\\\\quicksilver\\BLDesktop\\ERPCurrent\\CommonDB\\ICECommon_full_dmp"
+  common_db_source: "\\\\quicksilver\\BLDesktop\\ERPCurrent\\CommonDB\\ICECommon_full_dmp.bak"
   # Source: Epicor Kinetic latest build folder
   epicor_builds_path: "\\\\quicksilver\\InstallExes\\Epicor12\\ERPCurrent"
 
@@ -35,4 +35,3 @@ sql_server:
 logging:
   log_file: "logs\\setup.log"
   level: "INFO"
-

@@ -4,8 +4,9 @@ EpicorSetupAgent - Main CLI entry point
 
 Usage:
     python main.py              # Run all steps interactively
-    python main.py --sync       # Step 1 only: copy files from network
-    python main.py --restore    # Step 2 only: restore both databases
+    python main.py --sync       # Step 1: copy files from network
+    python main.py --extract    # Step 2: extract ERP .7z archive -> .bak
+    python main.py --restore    # Step 3: restore both databases
     python main.py --all        # Run all steps non-interactively
     python main.py --check      # Check prerequisites only
 """
@@ -28,6 +29,8 @@ except ImportError:
 
 from agent.prerequisites import PrerequisiteChecker
 from agent.file_sync import FileSyncAgent
+from agent.extractor import ExtractorAgent
+from agent.db_restore import DatabaseRestoreAgent
 from agent.db_restore import DatabaseRestoreAgent
 
 # ------------------------------------------------------------------
@@ -149,15 +152,22 @@ def run_sync(config: dict):
     iso_path = agent.sync_epicor_build()
     success(f"Epicor build folder copied to: {iso_path}")
 
+def run_extract(config: dict):
+    step_header("Step 2 — Extract ERP Backup Archive (.7z → .bak)")
+    agent = ExtractorAgent(config)
+    info("Extracting E10QAGolden_full_dmp.7z ...")
+    bak_path = agent.extract_erp_backup()
+    success(f"ERP backup extracted to: {bak_path}")
+
 def run_restore(config: dict):
-    step_header("Step 2 — Restore ERP Database (E10QAGolden)")
+    step_header("Step 3 — Restore ERP Database (E10QAGolden)")
     agent = DatabaseRestoreAgent(config)
 
     info("Restoring E10QAGolden to SQL Server 2022 ...")
     agent.restore_erp_db()
     success("E10QAGolden database restored successfully.")
 
-    step_header("Step 3 — Restore ICECommon Database")
+    step_header("Step 4 — Restore ICECommon Database")
     info("Restoring ICECommon to SQL Server 2022 ...")
     agent.restore_common_db()
     success("ICECommon database restored successfully.")
@@ -170,9 +180,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="EpicorSetupAgent - Automate Epicor Kinetic local environment setup"
     )
-    parser.add_argument("--all",     action="store_true", help="Run all steps (sync + restore)")
+    parser.add_argument("--all",     action="store_true", help="Run all steps (sync + extract + restore)")
     parser.add_argument("--sync",    action="store_true", help="Step 1: Copy files from network share")
-    parser.add_argument("--restore", action="store_true", help="Steps 2-3: Restore both databases")
+    parser.add_argument("--extract", action="store_true", help="Step 2: Extract ERP .7z archive to .bak")
+    parser.add_argument("--restore", action="store_true", help="Steps 3-4: Restore both databases")
     parser.add_argument("--check",   action="store_true", help="Check prerequisites only")
     parser.add_argument("--config",  default="config/config.yaml", help="Path to config file")
     args = parser.parse_args()
@@ -184,7 +195,7 @@ def main():
     banner()
 
     # Default: interactive mode if no flags given
-    run_all = args.all or (not args.sync and not args.restore and not args.check)
+    run_all = args.all or (not args.sync and not args.extract and not args.restore and not args.check)
 
     try:
         if args.check or run_all:
@@ -195,10 +206,13 @@ def main():
         if args.sync or run_all:
             run_sync(config)
 
+        if args.extract or run_all:
+            run_extract(config)
+
         if args.restore or run_all:
             run_restore(config)
 
-        if run_all or args.sync or args.restore:
+        if run_all or args.sync or args.extract or args.restore:
             print()
             success("EpicorSetupAgent completed all steps successfully!")
             info(f"Check the log file for details: {log_cfg.get('log_file', 'logs/setup.log')}")
