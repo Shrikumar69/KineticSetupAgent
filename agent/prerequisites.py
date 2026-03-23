@@ -4,6 +4,7 @@ Checks system prerequisites before running the Epicor Kinetic setup.
 """
 
 import os
+import re
 import platform
 import shutil
 import subprocess
@@ -56,28 +57,11 @@ class PrerequisiteChecker:
 
     def _check_ram(self) -> bool:
         try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            c_ulong = ctypes.c_ulong
-
-            class MEMORYSTATUS(ctypes.Structure):
-                _fields_ = [
-                    ("dwLength", c_ulong),
-                    ("dwMemoryLoad", c_ulong),
-                    ("dwTotalPhys", ctypes.c_ulonglong),
-                    ("dwAvailPhys", ctypes.c_ulonglong),
-                    ("dwTotalPageFile", ctypes.c_ulonglong),
-                    ("dwAvailPageFile", ctypes.c_ulonglong),
-                    ("dwTotalVirtual", ctypes.c_ulonglong),
-                    ("dwAvailVirtual", ctypes.c_ulonglong),
-                ]
-
-            memory_status = MEMORYSTATUS()
-            memory_status.dwLength = ctypes.sizeof(MEMORYSTATUS)
-            kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
-            total_ram_gb = memory_status.dwTotalPhys / (1024 ** 3)
+            import psutil
+            total_ram_gb = psutil.virtual_memory().total / (1024 ** 3)
             ok = total_ram_gb >= self.required_ram_gb
-            self._record("RAM", ok, f"{total_ram_gb:.1f} GB available (required: {self.required_ram_gb} GB)")
+            self._record("RAM", ok,
+                         f"{total_ram_gb:.1f} GB total (required: {self.required_ram_gb} GB)")
             return ok
         except Exception as e:
             self._record("RAM", False, f"Could not detect RAM: {e}")
@@ -103,18 +87,23 @@ class PrerequisiteChecker:
                  "/v", "Release"],
                 capture_output=True, text=True
             )
-            # .NET 4.8 release key >= 528040
-            if "528040" in result.stdout or any(
-                str(r) in result.stdout for r in range(528040, 600000)
-            ):
-                self._record(".NET Framework 4.8+", True, "Installed")
-                return True
-            # Try to find any release key
-            lines = [l for l in result.stdout.splitlines() if "Release" in l]
-            detail = lines[0].strip() if lines else result.stdout.strip() or "Not found"
-            ok = False
-            self._record(f".NET Framework {self.required_dotnet}", ok, detail)
-            return ok
+            # Registry returns hex value e.g. "0x82405" — parse it numerically
+            match = re.search(r'0x([0-9a-fA-F]+)', result.stdout)
+            if match:
+                release = int(match.group(1), 16)
+                # .NET 4.8 = 528040, .NET 4.8.1 = 533320, .NET 4.8.2+ = higher
+                if release >= 528040:
+                    self._record(f".NET Framework {self.required_dotnet}", True,
+                                 f"Installed (release key: {release} / 0x{release:X})")
+                    return True
+                else:
+                    self._record(f".NET Framework {self.required_dotnet}", False,
+                                 f"Release key {release} is below required 528040 (.NET 4.8)")
+                    return False
+            # Fallback: not found
+            self._record(f".NET Framework {self.required_dotnet}", False,
+                         "Registry key not found — .NET 4.8 may not be installed")
+            return False
         except Exception as e:
             self._record(".NET Framework", False, f"Error: {e}")
             return False
@@ -129,13 +118,14 @@ class PrerequisiteChecker:
     def _check_iis(self) -> bool:
         try:
             result = subprocess.run(
-                ["powershell", "-Command",
-                 "Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole | Select-Object -ExpandProperty State"],
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "(Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole).State"],
                 capture_output=True, text=True, timeout=30
             )
             ok = "Enabled" in result.stdout
             self._record("IIS (Web Server Role)", ok,
-                         "Enabled" if ok else "Not enabled — run: Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole")
+                         "Enabled" if ok else
+                         "Not enabled — run: Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole")
             return ok
         except Exception as e:
             self._record("IIS", False, f"Could not check: {e}")

@@ -22,6 +22,7 @@ a = Analysis(
         'rich.panel',
         'rich.table',
         'colorama',
+        'psutil',
         'agent.prerequisites',
         'agent.file_sync',
         'agent.extractor',
@@ -58,3 +59,4 @@ exe = EXE(
     entitlements_file=None,
     icon=None,
 )
+
