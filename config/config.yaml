@@ -1,0 +1,38 @@
+# ============================================================
+#  EpicorSetupAgent - Configuration
+# ============================================================
+
+network:
+  # Source: ERP database compressed backup
+  erp_db_source: "\\\\quicksilver\\BLDesktop\\ERPCurrent\\QAGoldenMT\\E10QAGolden_full_dmp"
+  # Source: ICECommon database backup
+  common_db_source: "\\\\quicksilver\\BLDesktop\\ERPCurrent\\CommonDB\\ICECommon_full_dmp"
+  # Source: Epicor Kinetic latest build folder
+  epicor_builds_path: "\\\\quicksilver\\InstallExes\\Epicor12\\ERPCurrent"
+
+local:
+  # Destination: ERP database backup file
+  erp_db_dest: "C:\\ErpCurrent\\DB"
+  # Destination: ICECommon database backup file
+  common_db_dest: "C:\\ErpCurrent\\CommonDB"
+  # Destination: Epicor Kinetic ISO/build folder
+  epicor_iso_dest: "C:\\ErpCurrent\\ISO"
+
+sql_server:
+  # SQL Server instance name (e.g. "localhost", ".\\SQLEXPRESS", "localhost\\MSSQLSERVER")
+  instance: "localhost"
+  # Authentication: "windows" (recommended) or "sql"
+  auth_mode: "windows"
+  sql_user: ""
+  sql_password: ""
+  # Target database names after restore
+  erp_db_name: "E10QAGolden"
+  common_db_name: "ICECommon"
+  # Override data/log paths (leave blank to use SQL Server defaults)
+  data_path: ""
+  log_path: ""
+
+logging:
+  log_file: "logs\\setup.log"
+  level: "INFO"
+
