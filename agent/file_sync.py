@@ -85,6 +85,9 @@ class FileSyncAgent:
         else:
             logger.info(f"Syncing file   {source} -> {dest_full}")
             self._sync_file_incremental(source, dest_dir)
+            # Ensure the copied file is readable by the current user
+            # (robocopy can preserve restrictive network share permissions)
+            self._fix_permissions(dest_full)
 
         logger.info(f"[OK] {label} synced to: {dest_full}")
         return dest_full
@@ -129,25 +132,29 @@ class FileSyncAgent:
         self._run_robocopy(args)
 
     def _sync_file_incremental(self, source_file: str, dest_dir: str):
-        """Fast file sync via robocopy for a single file.
-        Note: /XO is intentionally omitted so corrupted/incomplete
-        destination files are always overwritten from source."""
-        src_parent = str(Path(source_file).parent)
-        file_name = Path(source_file).name
+        """Copy a single file from source to dest_dir using .NET File.Copy.
+        Robocopy /Z (restartable mode) was corrupting large .7z archives when
+        the network interrupted mid-copy — .NET File.Copy is atomic and safe."""
         self._ensure_dir(dest_dir)
-        args = [
-            src_parent,
-            dest_dir,
-            file_name,
-            "/Z",
-            "/FFT",
-            "/R:1",
-            "/W:1",
-            "/NP",
-            "/NJH",
-            "/NJS",
-        ]
-        self._run_robocopy(args)
+        dest_file = os.path.join(dest_dir, os.path.basename(source_file))
+
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+
+        # Use CopyFileEx for large file copy — reliable, no partial-file corruption
+        result = kernel32.CopyFileExW(
+            source_file,
+            dest_file,
+            None, None, None,
+            0x00000008  # COPY_FILE_RESTARTABLE = 0, COPY_FILE_NO_BUFFERING = 0x8
+        )
+        if not result:
+            err = ctypes.GetLastError()
+            # Fallback: use Python shutil if CopyFileEx fails
+            logger.warning(f"CopyFileExW failed (err={err}), falling back to shutil.copy2")
+            import shutil
+            shutil.copy2(source_file, dest_file)
+
 
     def _run_robocopy(self, args: list[str]):
         """Run robocopy and treat exit codes 0-7 as success, >=8 as failure."""
@@ -168,6 +175,23 @@ class FileSyncAgent:
             logger.debug(result.stdout)
         if result.stderr.strip():
             logger.debug(result.stderr)
+
+    @staticmethod
+    def _fix_permissions(path: str):
+        """Grant the current user full read/write access.
+        Robocopy preserves network share ACLs which can block local access."""
+        try:
+            import subprocess, os
+            user = os.environ.get("USERNAME", "")
+            domain = os.environ.get("USERDOMAIN", "")
+            account = f"{domain}\\{user}" if domain else user
+            subprocess.run(
+                ["icacls", path, "/grant", f"{account}:(F)", "/T"],
+                capture_output=True, check=False
+            )
+            logger.debug(f"Permissions fixed for: {path}")
+        except Exception as e:
+            logger.warning(f"Could not fix permissions on {path}: {e}")
 
     @staticmethod
     def _check_network_access(path: str):

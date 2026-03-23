@@ -10,7 +10,6 @@ available for SQL Server restore.
 import os
 import logging
 import subprocess
-import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,12 @@ class ExtractorAgent:
 
     def extract_erp_backup(self) -> str:
         """Extract E10QAGolden_full_dmp.7z into the local DB folder.
-        Returns the path of the extracted .bak file."""
+        Returns the path of the extracted .bak file.
+
+        Priority:
+          1. 7z.exe  — native C++ multi-thread LZMA2 (fastest)
+          2. py7zr   — pure Python fallback (if 7-Zip not installed)
+        """
         logger.info("=== Extracting ERP Backup Archive ===")
 
         archive = self._find_archive(self.erp_db_dest)
@@ -39,13 +43,26 @@ class ExtractorAgent:
         # Verify archive integrity before attempting extraction
         self._verify_archive(archive)
 
-        # Try py7zr first (pure Python), fallback to 7z.exe
-        try:
-            import py7zr
-            bak_path = self._extract_with_py7zr(archive, dest_dir)
-        except ImportError:
-            logger.warning("py7zr not available — trying 7z.exe")
+        # Priority 1 — 7z.exe (native, multi-thread, fast)
+        exe = self._find_7zip_exe()
+        if exe:
+            logger.info(f"Using 7z.exe (fast native extraction): {exe}")
             bak_path = self._extract_with_7zip_exe(archive, dest_dir)
+        else:
+            # Priority 2 — py7zr (pure Python fallback)
+            logger.warning(
+                "7-Zip not found — falling back to py7zr (slower). "
+                "Install 7-Zip for faster extraction: https://www.7-zip.org/"
+            )
+            try:
+                import py7zr
+                bak_path = self._extract_with_py7zr(archive, dest_dir)
+            except ImportError:
+                raise EnvironmentError(
+                    "Neither 7-Zip nor py7zr is available.\n"
+                    "Install 7-Zip from https://www.7-zip.org/ (recommended)\n"
+                    "or run: pip install py7zr"
+                )
 
         logger.info(f"[OK] Extracted backup file: {bak_path}")
         return bak_path
@@ -69,13 +86,16 @@ class ExtractorAgent:
         exe = self._find_7zip_exe()
         if not exe:
             raise EnvironmentError(
-                "7-Zip not found. Install py7zr (pip install py7zr) "
-                "or install 7-Zip from https://www.7-zip.org/"
+                "7-Zip not found. Install from https://www.7-zip.org/"
             )
-
-        logger.info(f"Extracting with 7z.exe: {exe}")
+        logger.info(f"Extracting with 7z.exe (multi-thread): {exe}")
         result = subprocess.run(
-            [exe, "x", archive, f"-o{dest_dir}", "-y"],
+            [
+                exe, "x", archive,
+                f"-o{dest_dir}",
+                "-y",          # overwrite existing files without prompt
+                "-mmt=on",     # enable multi-threading (uses all CPU cores)
+            ],
             capture_output=True, text=True
         )
         if result.returncode != 0:
@@ -162,13 +182,26 @@ class ExtractorAgent:
 
     @staticmethod
     def _find_7zip_exe() -> str | None:
-        """Look for 7z.exe in common install locations."""
+        """Look for 7z.exe in common install locations and registry."""
+        import shutil
+        # Common install paths
         candidates = [
             r"C:\Program Files\7-Zip\7z.exe",
             r"C:\Program Files (x86)\7-Zip\7z.exe",
             shutil.which("7z"),
             shutil.which("7za"),
         ]
+        # Also check registry for custom install path
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                 r"SOFTWARE\7-Zip")
+            path, _ = winreg.QueryValueEx(key, "Path")
+            winreg.CloseKey(key)
+            candidates.append(str(Path(path) / "7z.exe"))
+        except Exception:
+            pass
+
         for c in candidates:
             if c and Path(c).exists():
                 return c
