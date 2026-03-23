@@ -2,11 +2,6 @@
 # PyInstaller spec file for EpicorSetupAgent
 # Run:  pyinstaller EpicorSetupAgent.spec
 
-import sys
-from pathlib import Path
-
-block_cipher = None
-
 a = Analysis(
     ['main.py'],
     pathex=['.'],
@@ -36,13 +31,10 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -65,6 +57,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
-    version=None,
 )
-
