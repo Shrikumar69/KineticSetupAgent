@@ -38,7 +38,12 @@ from agent.db_restore import DatabaseRestoreAgent
 # ------------------------------------------------------------------
 
 def setup_logging(log_file: str, level: str = "INFO"):
-    log_path = Path(log_file)
+    # When running as .exe, write log next to the executable
+    if getattr(sys, "frozen", False):
+        log_path = Path(sys.executable).parent / "EpicorSetupAgent.log"
+    else:
+        log_path = Path(log_file)
+
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -54,11 +59,32 @@ def setup_logging(log_file: str, level: str = "INFO"):
 # ------------------------------------------------------------------
 
 def load_config(config_path: str = "config/config.yaml") -> dict:
-    cfg_file = Path(config_path)
+    import shutil
+
+    # --- Running as a PyInstaller .exe ---
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+        local_cfg = exe_dir / "config.yaml"
+
+        if not local_cfg.exists():
+            # First run: copy bundled config next to the .exe so user can edit it
+            bundle_dir = Path(getattr(sys, "_MEIPASS", exe_dir))
+            bundled = bundle_dir / "config" / "config.yaml"
+            if bundled.exists():
+                shutil.copy2(str(bundled), str(local_cfg))
+                print(f"[INFO] Config created next to EpicorSetupAgent.exe: {local_cfg}")
+                print("[INFO] Open config.yaml to review SQL Server settings before re-running.")
+
+        cfg_file = local_cfg
+
+    # --- Running as a normal Python script ---
+    else:
+        cfg_file = Path(config_path)
+
     if not cfg_file.exists():
         raise FileNotFoundError(
             f"Config file not found: {cfg_file.resolve()}\n"
-            "Ensure config/config.yaml exists."
+            "Ensure config.yaml exists next to the .exe (or config/config.yaml for script mode)."
         )
     with open(cfg_file, "r") as f:
         return yaml.safe_load(f)

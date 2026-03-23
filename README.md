@@ -178,48 +178,126 @@ That means:
 
 ---
 
-## 🚀 Getting Started
+## 🚀 How to Install & Run (New Developer Setup)
 
-### 1. Clone the repository
+Follow these steps **once** on any developer Windows machine.
+
+---
+
+### Step 1 — Get the code
 
 ```powershell
-git clone <repo-url>
-cd KneticSetupAgent
+git clone https://github.com/Shrikumar69/KineticSetupAgent.git
+cd KineticSetupAgent
 ```
 
-### 2. Create a Python virtual environment
+---
+
+### Step 2 — Install Python *(one time only)*
+
+Download and install Python 3.12:  
+👉 https://www.python.org/downloads/
+
+> ⚠️ During install — **check ✅ "Add Python to PATH"**
+
+Verify it works:
 
 ```powershell
+python --version
+# Expected: Python 3.12.x
+```
+
+---
+
+### Step 3 — Create virtual environment & install dependencies
+
+```powershell
+cd C:\KneticSetupAgent
+
+# Create the virtual environment
 python -m venv .venv
+
+# Activate it
 .\.venv\Scripts\Activate.ps1
-```
 
-### 3. Install dependencies
-
-```powershell
+# Install all required libraries
 pip install -r requirements.txt
 ```
 
-### 4. Review the configuration
+> If `Activate.ps1` is blocked by execution policy, run this first:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
 
-Open `config/config.yaml` and verify:
+---
 
-- **`sql_server.instance`** — matches your local SQL Server instance name  
-  (e.g. `localhost`, `.\SQLEXPRESS`, `localhost\MSSQLSERVER`)
-- **`sql_server.auth_mode`** — `windows` (default) or `sql`
-- All network and local paths are correct
-
-### 5. Run the agent
+### Step 4 — Check prerequisites
 
 ```powershell
-# Run everything (recommended)
-python main.py --all
-
-# Or step by step:
-python main.py --check      # Prerequisites check only
-python main.py --sync       # Copy files from network only
-python main.py --restore    # Restore databases only
+.\.venv\Scripts\python.exe main.py --check
 ```
+
+This verifies: OS, SQL Server, sqlcmd, IIS, disk space, .NET, PowerShell.
+
+---
+
+### Step 5 — Run the agent
+
+#### ✅ Recommended — run everything at once
+
+```powershell
+.\.venv\Scripts\python.exe main.py --all
+```
+
+#### Or run step by step
+
+```powershell
+# Step 1: Copy files from network share to local folders
+.\.venv\Scripts\python.exe main.py --sync
+
+# Step 2: Extract the ERP .7z archive into .bak
+.\.venv\Scripts\python.exe main.py --extract
+
+# Step 3: Restore both databases into SQL Server
+.\.venv\Scripts\python.exe main.py --restore
+```
+
+---
+
+### What happens when you run `--all`
+
+```
+Step 0 → Check prerequisites (OS, SQL Server, disk, .NET, IIS, PowerShell)
+Step 1 → Copy  E10QAGolden_full_dmp.7z     →  C:\ErpCurrent\DB\
+         Copy  ICECommon_full_dmp.bak       →  C:\ErpCurrent\CommonDB\
+         Copy  latest Epicor build folder   →  C:\ErpCurrent\ISO\
+Step 2 → Extract  E10QAGolden_full_dmp.7z  →  E10QAGolden_full_dmp.bak
+Step 3 → Restore  E10QAGolden  database    →  SQL Server (local)
+         Restore  ICECommon    database    →  SQL Server (local)
+```
+
+---
+
+### All available commands
+
+| Command | What it does |
+|---------|-------------|
+| `--all` | Run everything — sync + extract + restore |
+| `--check` | Prerequisites check only |
+| `--sync` | Copy files from network share only |
+| `--extract` | Extract ERP `.7z` → `.bak` only |
+| `--restore` | Restore both databases to SQL Server only |
+
+---
+
+### Review the configuration (optional)
+
+Open `config/config.yaml` to verify or change:
+
+- **`sql_server.instance`** — your local SQL Server name  
+  (e.g. `localhost`, `.\SQLEXPRESS`, `localhost\MSSQLSERVER`)
+- **`sql_server.auth_mode`** — `windows` (default) or `sql`
+- Network source paths and local destination paths
 
 ---
 
