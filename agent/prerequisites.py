@@ -116,20 +116,52 @@ class PrerequisiteChecker:
         return ok
 
     def _check_iis(self) -> bool:
+        # Method 1: registry key (works without elevation, fastest)
+        try:
+            import winreg
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\InetStp"
+            )
+            install_path, _ = winreg.QueryValueEx(key, "InstallPath")
+            winreg.CloseKey(key)
+            if install_path:
+                self._record("IIS (Web Server Role)", True,
+                             f"Installed at: {install_path}")
+                return True
+        except FileNotFoundError:
+            pass  # Registry key absent → not installed
+        except Exception:
+            pass  # Fall through to next method
+
+        # Method 2: W3SVC service exists
+        try:
+            result = subprocess.run(
+                ["sc", "query", "W3SVC"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                self._record("IIS (Web Server Role)", True, "W3SVC service found")
+                return True
+        except Exception:
+            pass
+
+        # Method 3: PowerShell Get-WindowsOptionalFeature (may need elevation)
         try:
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command",
                  "(Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole).State"],
                 capture_output=True, text=True, timeout=30
             )
-            ok = "Enabled" in result.stdout
-            self._record("IIS (Web Server Role)", ok,
-                         "Enabled" if ok else
-                         "Not enabled — run: Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole")
-            return ok
-        except Exception as e:
-            self._record("IIS", False, f"Could not check: {e}")
-            return False
+            if "Enabled" in result.stdout:
+                self._record("IIS (Web Server Role)", True, "Enabled")
+                return True
+        except Exception:
+            pass
+
+        self._record("IIS (Web Server Role)", False,
+                     "Not detected — run: Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole")
+        return False
 
     def _check_powershell(self) -> bool:
         try:
